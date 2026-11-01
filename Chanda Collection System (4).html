@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chanda Collection System - Live Number Plate Scanner</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;800&display=swap" rel="stylesheet">
+    <!-- Tesseract.js for OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <!-- QRCode.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            500: '#f97316',
+                            600: '#ea580c',
+                            700: '#c2410c',
+                        },
+                        dark: {
+                            900: '#0f172a',
+                            800: '#1e293b',
+                            700: '#334155',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #090d16;
+            color: #f8fafc;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .scan-region {
+            border: 2px dashed #f97316;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65);
+        }
+        @keyframes laser {
+            0% { top: 5%; opacity: 0.8; }
+            50% { top: 90%; opacity: 1; }
+            100% { top: 5%; opacity: 0.8; }
+        }
+        .laser-line {
+            position: absolute;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #f97316, #e11d48, transparent);
+            box-shadow: 0 0 12px #f97316;
+            animation: laser 2.2s ease-in-out infinite;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="font-sans antialiased min-h-screen flex flex-col justify-between selection:bg-brand-500 selection:text-white">
+
+    <!-- MAIN APP CONTAINER -->
+    <div id="app" class="flex-1 flex flex-col max-w-md mx-auto w-full min-h-screen bg-dark-900 border-x border-slate-800 relative shadow-2xl overflow-x-hidden">
+
+        <!-- AUTHENTICATION OVERLAY -->
+        <div id="auth-screen" class="fixed inset-0 z-50 bg-dark-900 flex flex-col justify-center items-center p-6 max-w-md mx-auto overflow-y-auto">
+            <div class="w-full space-y-6 text-center my-auto py-6">
+                <div class="inline-flex p-4 rounded-2xl bg-brand-500/10 text-brand-500 border border-brand-500/20 mb-2">
+                    <i class="fa-solid fa-motorcycle text-4xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-extrabold tracking-tight text-white">Chanda Collector</h1>
+                    <p class="text-slate-400 text-sm mt-1">Multi-Device Live Plate Scanner & Sync Ledger</p>
+                </div>
+
+                <div class="bg-dark-800 border border-slate-700/60 rounded-2xl p-5 shadow-xl text-left space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Collector Name / ID</label>
+                        <input type="text" id="collector-id-input" placeholder="e.g. Collector 1" class="w-full bg-dark-900 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-medium">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Access Passcode</label>
+                        <input type="password" id="passcode-input" placeholder="Enter System Passcode" class="w-full bg-dark-900 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono tracking-widest text-lg">
+                        <div class="flex items-center justify-between mt-1.5">
+                            <p class="text-[11px] text-slate-500">Default Passcode: <span class="font-mono text-brand-500 font-bold">1234</span></p>
+                            <button type="button" onclick="resetPasscodeToDefault()" class="text-[11px] text-brand-500 hover:text-brand-400 font-semibold underline">Reset Passcode</button>
+                        </div>
+                    </div>
+                    
+                    <button id="btn-login" onclick="handleLogin()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-brand-600/30 transition-all flex items-center justify-center space-x-2 text-base active:scale-98">
+                        <span>Connect & Start Syncing</span>
+                        <i class="fa-solid fa-arrow-right text-sm"></i>
+                    </button>
+                </div>
+
+                <div id="login-error" class="text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl text-xs font-medium hidden flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-circle-exclamation text-rose-500"></i>
+                    <span id="login-error-text">Incorrect Passcode! Use default code: 1234</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- HEADER -->
+        <header class="sticky top-0 z-30 bg-dark-900/95 backdrop-blur-md border-b border-slate-800 p-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center text-brand-500 font-bold">
+                    <i class="fa-solid fa-bolt"></i>
+                </div>
+                <div>
+                    <h2 class="font-extrabold text-sm text-white leading-tight">Chanda Express</h2>
+                    <p id="header-collector-tag" class="text-[11px] text-slate-400 font-medium">Collector: <span class="text-brand-500 font-semibold" id="collector-display-name">Unknown</span></p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <div id="sync-status-badge" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="sync-status-text">Synced</span>
+                </div>
+                <button onclick="openShareModal()" title="Share App" class="w-8 h-8 rounded-lg bg-dark-800 hover:bg-slate-700 text-brand-500 flex items-center justify-center transition border border-slate-700/60">
+                    <i class="fa-solid fa-qrcode text-xs"></i>
+                </button>
+                <button onclick="handleLogout()" title="Logout" class="w-8 h-8 rounded-lg bg-dark-800 hover:bg-slate-700 text-slate-400 flex items-center justify-center transition">
+                    <i class="fa-solid fa-right-from-bracket text-xs"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN VIEWPORTS -->
+        <main class="flex-1 overflow-y-auto pb-24 relative">
+            
+            <!-- VIEW 1: CAMERA SCANNER -->
+            <section id="view-scanner" class="p-4 space-y-4">
+                
+                <!-- CAMERA VIEWPORT -->
+                <div class="relative w-full aspect-[4/3] bg-black rounded-3xl overflow-hidden border border-slate-800 shadow-2xl flex flex-col justify-center items-center">
+                    <video id="camera-feed" class="w-full h-full object-cover hidden" playsinline autoplay muted></video>
+                    
+                    <div id="camera-placeholder" class="flex flex-col items-center justify-center p-6 text-center space-y-3">
+                        <div class="w-16 h-16 rounded-full bg-dark-800 border border-slate-700 flex items-center justify-center text-slate-500 text-2xl">
+                            <i class="fa-solid fa-camera"></i>
+                        </div>
+                        <div>
+                            <p class="font-bold text-slate-200">Camera Scanner Ready</p>
+                            <p class="text-xs text-slate-400 mt-0.5">Tap Start Camera below to begin scanning number plates</p>
+                        </div>
+                    </div>
+
+                    <!-- Target Overlay Box -->
+                    <div id="scanner-overlay" class="absolute inset-0 pointer-events-none hidden flex items-center justify-center">
+                        <div class="scan-region w-[82%] h-[40%] rounded-2xl relative flex items-center justify-center">
+                            <div class="laser-line"></div>
+                            <span class="absolute bottom-2 text-[10px] font-mono tracking-widest text-brand-500 uppercase font-bold bg-black/60 px-2 py-0.5 rounded">Align Bike Plate Here</span>
+                        </div>
+                    </div>
+
+                    <!-- OCR Progress Indicator -->
+                    <div id="ocr-loader" class="absolute bottom-3 left-3 right-3 bg-dark-900/90 backdrop-blur border border-slate-700/80 rounded-xl p-2.5 flex items-center space-x-3 hidden">
+                        <div class="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+                        <div class="flex-1 overflow-hidden">
+                            <p class="text-xs font-semibold text-white truncate" id="ocr-status-text">Scanning plate number...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLS -->
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="btn-toggle-camera" onclick="toggleCamera()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-3 px-4 rounded-2xl shadow-lg shadow-brand-600/20 flex items-center justify-center space-x-2 transition active:scale-95">
+                        <i class="fa-solid fa-camera"></i>
+                        <span id="btn-camera-text">Start Camera</span>
+                    </button>
+                    <button onclick="openManualModal()" class="w-full bg-dark-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold py-3 px-4 rounded-2xl flex items-center justify-center space-x-2 transition active:scale-95">
+                        <i class="fa-solid fa-keyboard text-brand-500"></i>
+                        <span>Manual Entry</span>
+                    </button>
+                </div>
+
+                <!-- QUICK INPUT & SEARCH -->
+                <div class="bg-dark-800 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Quick Plate Entry / Verification</h3>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="quick-plate-search" placeholder="Enter Plate e.g. MH12AB1234" class="flex-1 bg-dark-900 border border-slate-700/70 rounded-xl px-3.5 py-2.5 font-mono text-base font-extrabold uppercase tracking-wider text-yellow-400 placeholder-slate-600 focus:outline-none focus:border-brand-500">
+                        <button id="btn-process-plate" onclick="processQuickInput()" class="bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs px-4 py-3 rounded-xl transition flex items-center space-x-1 shrink-0">
+                            <span>Check</span>
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- STATS COUNTER -->
+                <div class="grid grid-cols-2 gap-3 pt-1">
+                    <div class="bg-dark-800 border border-slate-800 rounded-2xl p-4">
+                        <p class="text-xs text-slate-400 font-semibold">Total Collected</p>
+                        <p class="text-2xl font-black text-emerald-400 font-mono mt-1" id="stat-total-amount">₹0</p>
+                    </div>
+                    <div class="bg-dark-800 border border-slate-800 rounded-2xl p-4">
+                        <p class="text-xs text-slate-400 font-semibold">Bikes Registered</p>
+                        <p class="text-2xl font-black text-white font-mono mt-1" id="stat-total-bikes">0</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 2: DATABASE REPOSITORY -->
+            <section id="view-records" class="p-4 space-y-4 hidden">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-extrabold text-white">Chanda Ledger</h3>
+                        <p class="text-xs text-slate-400">Live multi-device connected database</p>
+                    </div>
+                    <button onclick="exportCSV()" class="bg-dark-800 border border-slate-700 text-xs font-semibold text-slate-300 px-3 py-2 rounded-xl flex items-center space-x-1.5 hover:bg-slate-700 transition">
+                        <i class="fa-solid fa-file-csv text-emerald-400"></i>
+                        <span>Export CSV</span>
+                    </button>
+                </div>
+
+                <!-- SEARCH & FILTER -->
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-slate-500 text-sm"></i>
+                    <input type="text" id="record-search-input" onkeyup="filterRecords()" placeholder="Search Bike Plate Number..." class="w-full bg-dark-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono">
+                </div>
+
+                <!-- DATABASE CONTAINER -->
+                <div id="records-container" class="space-y-2.5"></div>
+
+                <div id="no-records-prompt" class="hidden text-center py-12 text-slate-500 space-y-2">
+                    <i class="fa-solid fa-folder-open text-3xl"></i>
+                    <p class="text-sm">No bike collections recorded yet.</p>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- FOOTER TABS -->
+        <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-dark-900/95 backdrop-blur-md border-t border-slate-800 p-2 grid grid-cols-2 gap-2 z-30">
+            <button id="nav-btn-scanner" onclick="switchTab('scanner')" class="flex flex-col items-center justify-center py-2 px-4 rounded-xl text-brand-500 font-bold text-xs space-y-1 transition bg-brand-500/10">
+                <i class="fa-solid fa-camera text-base"></i>
+                <span>Scanner</span>
+            </button>
+            <button id="nav-btn-records" onclick="switchTab('records')" class="flex flex-col items-center justify-center py-2 px-4 rounded-xl text-slate-400 hover:text-slate-200 font-bold text-xs space-y-1 transition">
+                <i class="fa-solid fa-list-check text-base"></i>
+                <span>Database</span>
+            </button>
+        </nav>
+
+        <!-- MODAL: SHARE APP & QR CODE -->
+        <div id="modal-share-app" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 max-w-md mx-auto">
+            <div class="bg-dark-800 border border-slate-700 rounded-3xl p-6 w-full space-y-5 text-center shadow-2xl">
+                <div class="flex justify-between items-center text-left">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">Share App with Collectors</h3>
+                        <p class="text-xs text-slate-400">Scan QR to connect another mobile phone</p>
+                    </div>
+                    <button onclick="closeModal('modal-share-app')" class="text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl inline-block mx-auto shadow-inner border border-slate-200">
+                    <div id="qrcode-container" class="flex justify-center items-center"></div>
+                </div>
+
+                <div class="bg-dark-900 border border-slate-700 rounded-2xl p-3.5 text-left space-y-1.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400 font-medium">Shared Access Passcode:</span>
+                        <span class="font-mono text-brand-500 font-extrabold tracking-widest text-base" id="share-passcode-display">1234</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500">Other collectors use this passcode to access the shared collection registry.</p>
+                </div>
+
+                <div class="space-y-2">
+                    <button onclick="copyAppURL()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg transition active:scale-98 flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-copy"></i>
+                        <span id="copy-btn-text">Copy Web App Link</span>
+                    </button>
+                    <div id="copy-toast" class="text-xs text-emerald-400 font-semibold hidden flex items-center justify-center space-x-1">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>Link copied to clipboard!</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: ALREADY PAID WARNING -->
+        <div id="modal-already-paid" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 max-w-md mx-auto">
+            <div class="bg-dark-800 border border-rose-500/40 rounded-3xl p-6 w-full space-y-5 text-center shadow-2xl">
+                <div class="w-16 h-16 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-500 flex items-center justify-center text-3xl mx-auto">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div>
+                    <span class="text-xs font-bold uppercase tracking-widest text-rose-400 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20">⚠️ ALREADY PAID!</span>
+                    <h3 class="text-2xl font-black text-white font-mono mt-3 uppercase" id="paid-modal-plate">MH 12 AB 1234</h3>
+                    <p class="text-slate-300 text-sm mt-1">This vehicle has already paid their Chanda.</p>
+                </div>
+
+                <div class="bg-dark-900 border border-slate-700 rounded-2xl p-4 text-left space-y-2 text-xs">
+                    <div class="flex justify-between border-b border-slate-800 pb-2">
+                        <span class="text-slate-400">Amount Paid:</span>
+                        <span class="font-extrabold text-emerald-400 text-sm font-mono" id="paid-modal-amount">₹10</span>
+                    </div>
+                    <div class="flex justify-between border-b border-slate-800 pb-2">
+                        <span class="text-slate-400">Date & Time:</span>
+                        <span class="font-medium text-slate-200" id="paid-modal-time">Today, 10:30 AM</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Collected By:</span>
+                        <span class="font-medium text-brand-500" id="paid-modal-collector">Collector 1</span>
+                    </div>
+                </div>
+
+                <button onclick="closeModal('modal-already-paid')" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3.5 px-4 rounded-xl transition">
+                    Dismiss & Continue
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL: ENTER AMOUNT (WITH 10, 20, 30 PRESETS AND AUTO-CLOSE) -->
+        <div id="modal-enter-amount" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 max-w-md mx-auto">
+            <div class="bg-dark-800 border border-slate-700 rounded-3xl p-6 w-full space-y-5 text-center shadow-2xl">
+                <div class="flex justify-between items-center text-left">
+                    <div>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">New Vehicle Verified</span>
+                        <h3 class="text-2xl font-black text-yellow-400 font-mono uppercase" id="input-modal-plate">MH 12 AB 1234</h3>
+                    </div>
+                    <button onclick="closeModal('modal-enter-amount')" class="text-slate-400 hover:text-white text-lg">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 text-left">Select or Enter Amount (₹)</label>
+                    
+                    <!-- UPDATED PRESET AMOUNTS: 10, 20, 30 -->
+                    <div class="grid grid-cols-3 gap-2.5">
+                        <button type="button" onclick="setQuickAmount(10)" class="bg-dark-900 hover:bg-brand-600/30 border border-slate-700 hover:border-brand-500 text-white font-bold py-3 rounded-xl text-base transition active:scale-95">₹10</button>
+                        <button type="button" onclick="setQuickAmount(20)" class="bg-dark-900 hover:bg-brand-600/30 border border-slate-700 hover:border-brand-500 text-white font-bold py-3 rounded-xl text-base transition active:scale-95">₹20</button>
+                        <button type="button" onclick="setQuickAmount(30)" class="bg-dark-900 hover:bg-brand-600/30 border border-slate-700 hover:border-brand-500 text-white font-bold py-3 rounded-xl text-base transition active:scale-95">₹30</button>
+                    </div>
+
+                    <input type="number" id="collection-amount-input" placeholder="Custom Amount ₹" class="w-full bg-dark-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-center text-xl font-mono font-bold focus:outline-none focus:border-brand-500">
+                </div>
+
+                <button onclick="saveCollectionRecord()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-emerald-600/30 transition active:scale-98 flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-check"></i>
+                    <span>Confirm & Save Record</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- MODAL: MANUAL INPUT ENTRY -->
+        <div id="modal-manual-entry" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4 max-w-md mx-auto">
+            <div class="bg-dark-800 border border-slate-700 rounded-3xl p-6 w-full space-y-4 text-left shadow-2xl">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-bold text-white">Manual Record Entry</h3>
+                    <button onclick="closeModal('modal-manual-entry')" class="text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Bike Number Plate</label>
+                        <input type="text" id="manual-plate-input" placeholder="e.g. MH12AB1234" class="w-full bg-dark-900 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono uppercase font-bold focus:outline-none focus:border-brand-500 tracking-wider">
+                    </div>
+                </div>
+
+                <button onclick="submitManualRecord()" class="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg transition active:scale-98 flex items-center justify-center space-x-2">
+                    <span>Verify & Continue</span>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- FIREBASE & CORE APPLICATION SCRIPTS -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // GLOBAL APPLICATION CONFIG
+        let activePasscode = "1234";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'chanda-collection-default';
+        const LOCAL_STORAGE_KEY = `chanda_local_backup_${appId}`;
+        const PASSCODE_STORAGE_KEY = `chanda_passcode_${appId}`;
+
+        let firebaseConfig;
+        if (typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+        } else {
+            firebaseConfig = {
+                apiKey: "AIzaSyDemoConfigForChandaApp12345",
+                authDomain: "chanda-app.firebaseapp.com",
+                projectId: "chanda-app",
+                storageBucket: "chanda-app.appspot.com",
+                messagingSenderId: "123456789",
+                appId: "1:123456789:web:abcdef"
+            };
+        }
+
+        let app, db, auth;
+        let activeCollectorName = "Collector 1";
+        let collectionRecords = [];
+        let isScanning = false;
+        let videoStream = null;
+        let ocrInterval = null;
+        let currentDetectedPlate = "";
+        let qrCodeInstance = null;
+
+        // LOAD PASSCODE FROM STORAGE
+        try {
+            const savedPass = localStorage.getItem(PASSCODE_STORAGE_KEY);
+            if (savedPass) activePasscode = savedPass;
+        } catch(e) {}
+
+        // AUTHENTICATION LOGIC
+        window.handleLogin = function() {
+            const passcodeSubmitted = document.getElementById('passcode-input').value.trim();
+            const collectorNameSubmitted = document.getElementById('collector-id-input').value.trim();
+            const errBox = document.getElementById('login-error');
+
+            if (!collectorNameSubmitted) {
+                alert("Please enter your Collector Name / ID.");
+                return;
+            }
+
+            if (passcodeSubmitted === activePasscode || passcodeSubmitted === "1234") {
+                activeCollectorName = collectorNameSubmitted;
+                document.getElementById('collector-display-name').innerText = activeCollectorName;
+                document.getElementById('auth-screen').classList.add('hidden');
+                errBox.classList.add('hidden');
+            } else {
+                errBox.classList.remove('hidden');
+                document.getElementById('login-error-text').innerText = `Incorrect Passcode! Use default code: 1234`;
+            }
+        };
+
+        window.resetPasscodeToDefault = function() {
+            activePasscode = "1234";
+            try {
+                localStorage.setItem(PASSCODE_STORAGE_KEY, "1234");
+            } catch(e) {}
+            document.getElementById('passcode-input').value = "1234";
+            document.getElementById('login-error').classList.add('hidden');
+            alert("Passcode has been reset to default: 1234");
+        };
+
+        window.handleLogout = function() {
+            stopCamera();
+            document.getElementById('auth-screen').classList.remove('hidden');
+        };
+
+        // LOCAL STORAGE BACKUP HANDLERS
+        function loadLocalBackup() {
+            try {
+                const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+                return stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveLocalBackup(records) {
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+            } catch (e) {}
+        }
+
+        // AUDIO FEEDBACK
+        const playBeep = (type) => {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                if (type === 'duplicate') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(300, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.3);
+                    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.3);
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                } else if (type === 'success') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(520, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.2);
+                    if (navigator.vibrate) navigator.vibrate(100);
+                }
+            } catch (e) {}
+        };
+
+        // FIREBASE MULTI-DEVICE SYNC
+        async function initFirebase() {
+            collectionRecords = loadLocalBackup();
+            renderStats();
+            renderRecordsList();
+
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                await signInAnonymously(auth);
+                subscribeToDatabase();
+            } catch (err) {
+                updateSyncBadge(false);
+            }
+        }
+
+        function subscribeToDatabase() {
+            if (!db) return;
+            const recordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'chanda_collections');
+            
+            onSnapshot(recordsRef, (snapshot) => {
+                const cloudRecords = [];
+                snapshot.forEach((doc) => {
+                    cloudRecords.push({ id: doc.id, ...doc.data() });
+                });
+                
+                const recordMap = new Map();
+                collectionRecords.forEach(r => recordMap.set(r.id, r));
+                cloudRecords.forEach(r => recordMap.set(r.id, r));
+                
+                collectionRecords = Array.from(recordMap.values());
+                collectionRecords.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                
+                saveLocalBackup(collectionRecords);
+                updateSyncBadge(true);
+                renderStats();
+                renderRecordsList();
+            }, (error) => {
+                updateSyncBadge(false);
+            });
+        }
+
+        function updateSyncBadge(isOnline) {
+            const badge = document.getElementById('sync-status-badge');
+            const text = document.getElementById('sync-status-text');
+            if (isOnline) {
+                badge.className = "flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                text.innerText = "Synced";
+            } else {
+                badge.className = "flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                text.innerText = "Offline Mode";
+            }
+        }
+
+        // CAMERA SCANNER LOGIC
+        window.toggleCamera = async function() {
+            if (isScanning) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        };
+
+        async function startCamera() {
+            const video = document.getElementById('camera-feed');
+            const placeholder = document.getElementById('camera-placeholder');
+            const overlay = document.getElementById('scanner-overlay');
+            const btnText = document.getElementById('btn-camera-text');
+            const loader = document.getElementById('ocr-loader');
+
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                video.srcObject = videoStream;
+                video.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+                overlay.classList.remove('hidden');
+                loader.classList.remove('hidden');
+                btnText.innerText = "Stop Camera";
+                isScanning = true;
+
+                startOCRScanning();
+            } catch (err) {
+                alert("Camera access error: " + err.message + "\n\nPlease ensure site camera permissions are allowed in browser settings.");
+            }
+        }
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            if (ocrInterval) clearInterval(ocrInterval);
+
+            document.getElementById('camera-feed').classList.add('hidden');
+            document.getElementById('camera-placeholder').classList.remove('hidden');
+            document.getElementById('scanner-overlay').classList.add('hidden');
+            document.getElementById('ocr-loader').classList.add('hidden');
+            document.getElementById('btn-camera-text').innerText = "Start Camera";
+            isScanning = false;
+        }
+
+        function startOCRScanning() {
+            const video = document.getElementById('camera-feed');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            ocrInterval = setInterval(async () => {
+                if (!isScanning || video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                try {
+                    const result = await Tesseract.recognize(canvas, 'eng', {
+                        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+                    });
+                    
+                    const cleaned = cleanPlateText(result.data.text);
+                    if (cleaned && cleaned.length >= 5) {
+                        currentDetectedPlate = cleaned;
+                        document.getElementById('quick-plate-search').value = formatPlate(cleaned);
+                        checkVehicleAndPrompt(cleaned);
+                    }
+                } catch (e) {}
+            }, 2500);
+        }
+
+        function cleanPlateText(rawText) {
+            return rawText.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        }
+
+        function formatPlate(str) {
+            if (!str) return '';
+            return str.replace(/(.{2})(.{2})(.{2})(.{4})/, '$1 $2 $3 $4').trim();
+        }
+
+        window.processQuickInput = function() {
+            const raw = document.getElementById('quick-plate-search').value;
+            const cleaned = cleanPlateText(raw);
+            if (!cleaned || cleaned.length < 4) {
+                alert("Please enter a valid bike plate number.");
+                return;
+            }
+            checkVehicleAndPrompt(cleaned);
+        };
+
+        // CHECK IF VEHICLE ALREADY PAID
+        function checkVehicleAndPrompt(plateNumber) {
+            const normalizedPlate = cleanPlateText(plateNumber);
+            const existingRecord = collectionRecords.find(r => cleanPlateText(r.plateNumber) === normalizedPlate);
+
+            if (existingRecord) {
+                playBeep('duplicate');
+                document.getElementById('paid-modal-plate').innerText = formatPlate(existingRecord.plateNumber);
+                document.getElementById('paid-modal-amount').innerText = `₹${existingRecord.amount}`;
+                document.getElementById('paid-modal-time').innerText = new Date(existingRecord.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+                document.getElementById('paid-modal-collector').innerText = existingRecord.collector || "Unknown";
+                
+                openModal('modal-already-paid');
+            } else {
+                playBeep('success');
+                document.getElementById('input-modal-plate').innerText = formatPlate(normalizedPlate);
+                document.getElementById('collection-amount-input').value = "10";
+                currentDetectedPlate = normalizedPlate;
+                openModal('modal-enter-amount');
+            }
+        }
+
+        // SAVE RECORD & AUTOMATICALLY CLOSE MODAL
+        window.saveCollectionRecord = async function() {
+            const amountInput = document.getElementById('collection-amount-input');
+            const amount = parseInt(amountInput.value, 10);
+            
+            if (!amount || amount <= 0) {
+                alert("Please enter a valid donation amount.");
+                return;
+            }
+
+            const docId = `rec_${currentDetectedPlate}_${Date.now()}`;
+            const recordData = {
+                id: docId,
+                plateNumber: currentDetectedPlate,
+                amount: amount,
+                timestamp: Date.now(),
+                collector: activeCollectorName
+            };
+
+            collectionRecords.unshift(recordData);
+            saveLocalBackup(collectionRecords);
+
+            if (db) {
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'chanda_collections', docId), recordData);
+                } catch (e) {}
+            }
+
+            document.getElementById('quick-plate-search').value = "";
+            renderStats();
+            renderRecordsList();
+            
+            // AUTO CLOSE DIALOG BOX IMMEDIATELY
+            closeModal('modal-enter-amount');
+            playBeep('success');
+        };
+
+        // MANUAL ENTRY HANDLERS
+        window.openManualModal = function() {
+            document.getElementById('manual-plate-input').value = "";
+            openModal('modal-manual-entry');
+        };
+
+        window.submitManualRecord = function() {
+            const rawPlate = document.getElementById('manual-plate-input').value;
+            const cleaned = cleanPlateText(rawPlate);
+
+            if (!cleaned || cleaned.length < 4) {
+                alert("Please enter a valid vehicle number plate.");
+                return;
+            }
+
+            closeModal('modal-manual-entry');
+            currentDetectedPlate = cleaned;
+            checkVehicleAndPrompt(cleaned);
+        };
+
+        // PRESET AMOUNT ASSIGNMENT (₹10, ₹20, ₹30)
+        window.setQuickAmount = function(val) {
+            document.getElementById('collection-amount-input').value = val;
+        };
+
+        // SHARE & QR SYSTEM
+        window.openShareModal = function() {
+            const currentUrl = window.location.href;
+            const container = document.getElementById('qrcode-container');
+            container.innerHTML = "";
+
+            try {
+                qrCodeInstance = new QRCode(container, {
+                    text: currentUrl,
+                    width: 160,
+                    height: 160,
+                    colorDark: "#0f172a",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            } catch(e) {}
+
+            document.getElementById('share-passcode-display').innerText = activePasscode;
+            document.getElementById('copy-toast').classList.add('hidden');
+            document.getElementById('copy-btn-text').innerText = "Copy Web App Link";
+            openModal('modal-share-app');
+        };
+
+        window.copyAppURL = function() {
+            const currentUrl = window.location.href;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(currentUrl);
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = currentUrl;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+
+            document.getElementById('copy-btn-text').innerText = "Copied!";
+            document.getElementById('copy-toast').classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('copy-btn-text').innerText = "Copy Web App Link";
+            }, 3000);
+        };
+
+        // NAVIGATION & RENDER FUNCTIONS
+        window.switchTab = function(tabName) {
+            const scannerView = document.getElementById('view-scanner');
+            const recordsView = document.getElementById('view-records');
+            const btnScanner = document.getElementById('nav-btn-scanner');
+            const btnRecords = document.getElementById('nav-btn-records');
+
+            if (tabName === 'scanner') {
+                scannerView.classList.remove('hidden');
+                recordsView.classList.add('hidden');
+                btnScanner.className = "flex flex-col items-center justify-center py-2 px-4 rounded-xl text-brand-500 font-bold text-xs space-y-1 transition bg-brand-500/10";
+                btnRecords.className = "flex flex-col items-center justify-center py-2 px-4 rounded-xl text-slate-400 hover:text-slate-200 font-bold text-xs space-y-1 transition";
+            } else {
+                scannerView.classList.add('hidden');
+                recordsView.classList.remove('hidden');
+                btnRecords.className = "flex flex-col items-center justify-center py-2 px-4 rounded-xl text-brand-500 font-bold text-xs space-y-1 transition bg-brand-500/10";
+                btnScanner.className = "flex flex-col items-center justify-center py-2 px-4 rounded-xl text-slate-400 hover:text-slate-200 font-bold text-xs space-y-1 transition";
+                renderRecordsList();
+            }
+        };
+
+        function renderStats() {
+            const totalSum = collectionRecords.reduce((sum, item) => sum + (item.amount || 0), 0);
+            document.getElementById('stat-total-amount').innerText = `₹${totalSum}`;
+            document.getElementById('stat-total-bikes').innerText = collectionRecords.length;
+        }
+
+        function renderRecordsList() {
+            const container = document.getElementById('records-container');
+            const noPrompt = document.getElementById('no-records-prompt');
+            const searchTerm = (document.getElementById('record-search-input')?.value || "").trim().toUpperCase();
+
+            const filtered = collectionRecords.filter(r => 
+                !searchTerm || (r.plateNumber && r.plateNumber.toUpperCase().includes(searchTerm))
+            );
+
+            if (filtered.length === 0) {
+                container.innerHTML = "";
+                noPrompt.classList.remove('hidden');
+                return;
+            }
+
+            noPrompt.classList.add('hidden');
+            container.innerHTML = filtered.map(item => `
+                <div class="bg-dark-800 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between shadow-sm">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="font-mono text-base font-black text-yellow-400 uppercase tracking-wider">${formatPlate(item.plateNumber)}</span>
+                            <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold px-2 py-0.5 rounded-full">Paid</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 flex items-center space-x-2">
+                            <span><i class="fa-solid fa-clock text-slate-500 mr-1"></i>${new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            <span>•</span>
+                            <span>By: ${item.collector || 'System'}</span>
+                        </p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <span class="font-mono font-black text-lg text-emerald-400">₹${item.amount}</span>
+                        <button onclick="deleteRecord('${item.id}')" class="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.filterRecords = function() {
+            renderRecordsList();
+        };
+
+        window.deleteRecord = async function(recordId) {
+            if (!confirm("Are you sure you want to delete this collection record?")) return;
+
+            collectionRecords = collectionRecords.filter(r => r.id !== recordId);
+            saveLocalBackup(collectionRecords);
+
+            if (db) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'chanda_collections', recordId));
+                } catch (e) {}
+            }
+
+            renderStats();
+            renderRecordsList();
+        };
+
+        window.exportCSV = function() {
+            if (collectionRecords.length === 0) {
+                alert("No records to export.");
+                return;
+            }
+            let csvContent = "data:text/csv;charset=utf-8,Plate Number,Amount (INR),Date Time,Collector\n";
+            collectionRecords.forEach(r => {
+                const dateStr = new Date(r.timestamp).toLocaleString().replace(',', '');
+                csvContent += `${r.plateNumber},${r.amount},${dateStr},${r.collector || 'System'}\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Chanda_Collection_Report_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        window.openModal = function(id) {
+            document.getElementById(id).classList.remove('hidden');
+        };
+
+        window.closeModal = function(id) {
+            document.getElementById(id).classList.add('hidden');
+        };
+
+        window.addEventListener('load', () => {
+            initFirebase();
+            
+            const nameIn = document.getElementById('collector-id-input');
+            const passIn = document.getElementById('passcode-input');
+            
+            [nameIn, passIn].forEach(input => {
+                if (input) {
+                    input.addEventListener('keyup', (e) => {
+                        if (e.key === 'Enter') handleLogin();
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
